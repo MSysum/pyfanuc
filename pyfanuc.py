@@ -3,17 +3,29 @@ import socket,time,datetime
 from struct import pack,unpack
 
 class pyfanuc(object):
-	def __init__(self, ip, port=8193):
+	def __init__(self, ip: str, port: int= 8193):
 		self.sock=None
 		self.ip=ip
 		self.port=port
 		self.connected=False
-	FTYPE_OPN_REQU=0x0101;FTYPE_OPN_RESP=0x0102
-	FTYPE_VAR_REQU=0x2101;FTYPE_VAR_RESP=0x2102
-	FTYPE_CLS_REQU=0x0201;FTYPE_CLS_RESP=0x0202
+
+	# Constants for header
+	FTYPE_OPN_REQU=0x0101
+	FTYPE_OPN_RESP=0x0102
+	FTYPE_VAR_REQU=0x2101
+	FTYPE_VAR_RESP=0x2102
+	FTYPE_CLS_REQU=0x0201
+	FTYPE_CLS_RESP=0x0202
 	FRAME_SRC=b'\x00\x01'
-	FRAME_DST=b'\x00\x02';FRAME_DST2=b'\x00\x01'
+	FRAME_DST=b'\x00\x02'
+	FRAME_DST2=b'\x00\x01'
 	FRAMEHEAD=b'\xa0\xa0\xa0\xa0'
+
+	# Struct Format Constants
+	BIG_ENDIAN = ">"
+	USHORT = "H"
+
+
 	def connect(self):
 		"Establish connection to machine and set parameters with sysinfo"
 #		try:
@@ -22,7 +34,7 @@ class pyfanuc(object):
 		self.sock.connect((self.ip,self.port))
 		self.sock.settimeout(1)
 		self.sock.sendall(self._encap(pyfanuc.FTYPE_OPN_REQU,pyfanuc.FRAME_DST))
-		data=self._decap(self.sock.recv(1500))
+		data = self._decap(self.sock.recv(1500))
 		if data["ftype"]==pyfanuc.FTYPE_OPN_RESP:
 			self.connected=True
 		self.getsysinfo()
@@ -45,25 +57,29 @@ class pyfanuc(object):
 		if ftype==pyfanuc.FTYPE_VAR_REQU:
 			pre=[]
 			if isinstance(payload,list):
+				_format = self.BIG_ENDIAN + self.USHORT
 				for t in payload:
-					pre.append(pack(">H",len(t)+2)+t)
-				payload=pack(">H",len(pre))+b''.join(pre)
+					pre.append(pack(_format,len(t)+2)+t)
+				payload=pack(_format,len(pre))+b''.join(pre)
 			else:
-				payload=pack(">HH",1,len(payload)+2)+payload
-		return pyfanuc.FRAMEHEAD+pack(">HHH",fvers,ftype,len(payload))+payload
-	def _decap(self,data):
+				_format = self.BIG_ENDIAN + self.USHORT*2
+				payload=pack(_format,1,len(payload)+2)+payload
+		_format = self.BIG_ENDIAN + self.USHORT*3
+		return pyfanuc.FRAMEHEAD+pack(_format,fvers,ftype,len(payload))+payload
+	def _decap(self, data: bytes) -> dict:
 		"intern function - Decapsulate packetdata"
 		if len(data)<10:
 			return {"len":-1}
 		if not data.startswith(b'\xa0'*4):
 			return {"len":-1}
-		fvers,ftype,len1=unpack(">HHH",data[4:10])
+		_format = self.BIG_ENDIAN + self.USHORT*3
+		_fanucversion, _fanuctype, len1 = unpack(_format, data[4:10])
 		if len1+10 != len(data):
 			return {"len":-1}
 		if len1==0:
-			return {"len":0,"ftype":ftype,"fvers":fvers,"data":b'0'}
+			return {"len":0,"ftype":_fanuctype,"fvers":_fanucversion,"data":b'0'}
 		data=data[10:]
-		if ftype==pyfanuc.FTYPE_VAR_RESP:
+		if _fanuctype == pyfanuc.FTYPE_VAR_RESP:
 			re=[]
 			qu=unpack(">H",data[0:2])[0]
 			n=2
@@ -71,9 +87,9 @@ class pyfanuc(object):
 				le=unpack(">H",data[n:n+2])[0]
 				re.append(data[n+2:n+le])
 				n+=le
-			return {"len":len1,"ftype":ftype,"fvers":fvers,"data":re}
+			return {"len":len1,"ftype":_fanuctype,"fvers":_fanucversion,"data":re}
 		else: # ftype==FTYPE_OPN_RESP or ftype==FTYPE_CLS_RESP
-			return {"len":len1,"ftype":ftype,"fvers":fvers,"data":data}
+			return {"len":len1,"ftype":_fanuctype,"fvers":_fanucversion,"data":data}
 	def _req_rdsingle(self,c1,c2,c3,v1=0,v2=0,v3=0,v4=0,v5=0,pl=b""):
 		"intern function - pack simple command"
 		cmd=pack(">HHH",c1,c2,c3)
